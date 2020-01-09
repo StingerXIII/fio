@@ -32,7 +32,6 @@
 #include "steadystate.h"
 #include "blktrace.h"
 
-#include "oslib/asprintf.h"
 #include "oslib/getopt.h"
 #include "oslib/strcasestr.h"
 
@@ -853,6 +852,11 @@ static int fixup_options(struct thread_data *td)
 			o->unit_base = N2S_BYTEPERSEC;
 	}
 
+#ifndef FIO_HAVE_ANY_FALLOCATE
+	/* Platform doesn't support any fallocate so force it to none */
+	o->fallocate_mode = FIO_FALLOCATE_NONE;
+#endif
+
 #ifndef CONFIG_FDATASYNC
 	if (o->fdatasync_blocks) {
 		log_info("fio: this platform does not support fdatasync()"
@@ -1240,7 +1244,8 @@ enum {
 	FPRE_NONE = 0,
 	FPRE_JOBNAME,
 	FPRE_JOBNUM,
-	FPRE_FILENUM
+	FPRE_FILENUM,
+	FPRE_MOD
 };
 
 static struct fpre_keyword {
@@ -1251,6 +1256,7 @@ static struct fpre_keyword {
 	{ .keyword = "$jobname",	.key = FPRE_JOBNAME, },
 	{ .keyword = "$jobnum",		.key = FPRE_JOBNUM, },
 	{ .keyword = "$filenum",	.key = FPRE_FILENUM, },
+	{ .keyword = "$mod",		.key = FPRE_MOD, },
 	{ .keyword = NULL, },
 	};
 
@@ -1328,6 +1334,24 @@ static char *make_filename(char *buf, size_t buf_size,struct thread_options *o,
 				int ret;
 
 				ret = snprintf(dst, dst_left, "%d", filenum);
+				if (ret < 0)
+					break;
+				else if (ret > dst_left) {
+					log_err("fio: truncated filename\n");
+					dst += dst_left;
+					dst_left = 0;
+				} else {
+					dst += ret;
+					dst_left -= ret;
+				}
+				break;
+				}
+			case FPRE_MOD: {
+				int ret;
+				int fnum_mod;
+				int dircount = 256; //hardcoded magic for now
+				fnum_mod = filenum % dircount;
+				ret = snprintf(dst, dst_left, "%d", fnum_mod);
 				if (ret < 0)
 					break;
 				else if (ret > dst_left) {
